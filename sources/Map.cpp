@@ -1,6 +1,5 @@
 #include "Map.h"
 
-#include <iostream>
 
 
 /**
@@ -19,7 +18,7 @@
  * @return A vector of vec3 objects representing the RGB color values of each
  *         pixel in the decoded 64x64 image.
  */
-std::vector<vec3> Map::decodeImage(const std::vector<unsigned char> &encodedData) {
+std::vector<vec3> Map::decodeImage(const std::vector<unsigned char> &encodedData) const {
     std::vector<vec3> pixels(4096);
     size_t pixelIndex = 0;
     vec3 colorPalette[4] = {

@@ -1,7 +1,3 @@
-//
-// Created by toron on 2025. 04. 11..
-//
-
 #ifndef STATION_H
 #define STATION_H
 

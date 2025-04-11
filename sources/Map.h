@@ -4,6 +4,7 @@
 #include "framework.h"
 #include "Station.h"
 #include "Path.h"
+#include <iostream>
 
 
 /**
@@ -26,7 +27,7 @@ class Map final : public Geometry<vec2> {
     unsigned int mapVao;
 
 private:
-    std::vector<vec3> decodeImage(const std::vector<unsigned char> &encodedData);
+    std::vector<vec3> decodeImage(const std::vector<unsigned char> &encodedData) const;
 
 public:
     Map(const std::vector<unsigned char> &encodedData);

@@ -2,7 +2,6 @@
 
 #include "Map.h"
 #include <vector>
-#include <GLFW/glfw3.h>
 
 
 const char *vertexShaderSource = R"(
@@ -89,7 +88,7 @@ private:
      *
      * @return The day-night factor as a float in the range [0.0, 1.0].
      */
-    float calculateDayNightFactor() {
+    float calculateDayNightFactor() const {
         std::tm summerSolstice = {};
         summerSolstice.tm_year = 2025 - 1900;
         summerSolstice.tm_mon = 5;
@@ -124,7 +123,7 @@ private:
      * @return The great-circle distance between the start and end coordinates,
      *         measured in kilometers.
      */
-    float calculateDistance(const vec2 &start, const vec2 &end) {
+    float calculateDistance(const vec2 &start, const vec2 &end) const {
         vec3 startCart = geoToCartesian(start);
         vec3 endCart = geoToCartesian(end);
 
@@ -182,6 +181,7 @@ public:
             station->DrawStation(prog, vec3(1.0f, 0.0f, 0.0f));
         }
     }
+
 
     void onKeyboard(int key) override {
         if (key == 'n' || key == 'N') {
