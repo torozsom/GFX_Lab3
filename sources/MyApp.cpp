@@ -1,3 +1,5 @@
+#include <iostream>
+
 #include "Map.h"
 #include <vector>
 #include <GLFW/glfw3.h>
@@ -63,35 +65,102 @@ const std::vector<unsigned char> encodedData = {
 };
 
 
+
+
 class MyApp : public glApp {
-private:
+
     Map *map;
     std::vector<Path *> paths;
     std::vector<Station *> stations;
     GPUProgram *prog;
+
     std::vector<vec2> stationGeoCoords;
+    std::vector<float> distances;
+    std::chrono::system_clock::time_point currentTime;
+    int hourOffset;
 
 
+private:
+    /**
+     * Calculates a day-night factor based on the given hour offset from the
+     * adjusted summer solstice day and time. The returned factor ranges from
+     * 0.0 to 1.0, where 0.0 represents complete night and 1.0 represents
+     * full day, transitioning smoothly using a cosine function.
+     *
+     * @return The day-night factor as a float in the range [0.0, 1.0].
+     */
     float calculateDayNightFactor() {
-        auto now = std::chrono::system_clock::now();
-        std::time_t tt = std::chrono::system_clock::to_time_t(now);
+        std::tm summerSolstice = {};
+        summerSolstice.tm_year = 2025 - 1900;
+        summerSolstice.tm_mon = 5;
+        summerSolstice.tm_mday = 21;
+        summerSolstice.tm_hour = 0;
+        summerSolstice.tm_min = 0;
+        summerSolstice.tm_sec = 0;
+        summerSolstice.tm_isdst = 0;
+
+        auto solsticeTime = std::chrono::system_clock::from_time_t(std::mktime(&summerSolstice));
+        auto adjustedTime = solsticeTime + std::chrono::hours(hourOffset);
+
+        std::time_t tt = std::chrono::system_clock::to_time_t(adjustedTime);
         std::tm *local = std::localtime(&tt);
 
         float hour = local->tm_hour + local->tm_min / 60.0f;
         float factor = cosf(((hour - 12.0f) / 12.0f) * M_PI);
-
         return (factor + 1.0f) / 2.0f;
     }
 
-public:
-    MyApp() : glApp(4, 5, 600, 600, "Grafika labor") {
+
+    /**
+     * Calculates the great-circle distance between two geographical coordinates
+     * specified in degrees. The calculation uses cartesian conversions and the
+     * haversine formula to compute the shortest path between the `start` and `end`
+     * points on the surface of the Earth.
+     *
+     * @param start The starting geographical coordinate as a vec2 object, where
+     *              x represents longitude and y represents latitude, in degrees.
+     * @param end   The ending geographical coordinate as a vec2 object, where
+     *              x represents longitude and y represents latitude, in degrees.
+     * @return The great-circle distance between the start and end coordinates,
+     *         measured in kilometers.
+     */
+    float calculateDistance(const vec2 &start, const vec2 &end) {
+        vec3 startCart = geoToCartesian(start);
+        vec3 endCart = geoToCartesian(end);
+
+        float dotProduct = dot(startCart, endCart);
+        if (dotProduct > 0.9995f)
+            dotProduct = 0.9995f;
+
+        if (dotProduct < -0.9995f)
+            dotProduct = -0.9995f;
+
+        float angle = acosf(dotProduct);
+        const float earthRadius = 40000.0f / (2.0f * M_PI);
+
+        return angle * earthRadius;
     }
+
+
+public:
+    MyApp() : glApp(4, 5, 600, 600, "Grafika labor #3") { }
 
 
     void onInitialization() override {
         map = new Map(encodedData);
         prog = new GPUProgram();
         prog->create(vertexShaderSource, fragmentShaderSource);
+
+        hourOffset = 0;
+        std::tm summerSolstice = {};
+        summerSolstice.tm_year = 2025 - 1900;
+        summerSolstice.tm_mon = 5;
+        summerSolstice.tm_mday = 21;
+        summerSolstice.tm_hour = 0;
+        summerSolstice.tm_min = 0;
+        summerSolstice.tm_sec = 0;
+        summerSolstice.tm_isdst = 0;
+        currentTime = std::chrono::system_clock::from_time_t(std::mktime(&summerSolstice));
     }
 
 
@@ -99,13 +168,26 @@ public:
         glClear(GL_COLOR_BUFFER_BIT);
         prog->Use();
         float dayNightFactor = calculateDayNightFactor();
-        prog->setUniform(dayNightFactor, "dayNightFactor");
 
+        prog->setUniform(dayNightFactor, "dayNightFactor");
         map->DrawMap(prog);
-        for (auto *path: paths)
-            path->DrawPath(prog, vec3(1.0f, 1.0f, 0.0f));
-        for (auto *station: stations)
+
+        for (size_t i = 0; i < paths.size(); ++i) {
+            prog->setUniform(1.0f, "dayNightFactor");
+            paths[i]->DrawPath(prog, vec3(1.0f, 1.0f, 0.0f));
+        }
+
+        for (auto *station: stations) {
+            prog->setUniform(1.0f, "dayNightFactor");
             station->DrawStation(prog, vec3(1.0f, 0.0f, 0.0f));
+        }
+    }
+
+    void onKeyboard(int key) override {
+        if (key == 'n' || key == 'N') {
+            hourOffset++;
+            refreshScreen();
+        }
     }
 
 
@@ -120,15 +202,20 @@ public:
                 vec2 start = stationGeoCoords[stationGeoCoords.size() - 2];
                 vec2 end = stationGeoCoords[stationGeoCoords.size() - 1];
                 paths.push_back(new Path(start, end));
+                float distance = calculateDistance(start, end);
+                distances.push_back(distance);
+                std::cout << "Distance: " << static_cast<int>(distance) << " km" << std::endl;
             }
             refreshScreen();
         }
     }
 
+
     ~MyApp() {
         delete map;
         delete prog;
-        for (auto* path : paths) delete path;
-        for (auto* station : stations) delete station;
+        for (auto *path: paths) delete path;
+        for (auto *station: stations) delete station;
     }
+
 } app;

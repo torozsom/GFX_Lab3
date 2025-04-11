@@ -141,10 +141,10 @@ vec3 sphericalLinearInterpolation(const vec3 &startVector, const vec3 &endVector
  *         - `y` represents the longitude in degrees.
  */
 vec2 cartesianToGeographic(const vec3 &cartesianCoordinates) {
-    float latitude = asinf(cartesianCoordinates.z) * 180.0f / M_PI; // Calculate latitude in degrees
+    float latitude = asinf(cartesianCoordinates.z) * 180.0f / M_PI;
     float longitude = atan2f(cartesianCoordinates.y, cartesianCoordinates.x) * 180.0f / M_PI;
-    // Calculate longitude in degrees
-    return vec2(latitude, longitude); // Return the geographic coordinates
+
+    return vec2(latitude, longitude);
 }
 
 
@@ -189,10 +189,10 @@ Path::Path(const vec2 &start, const vec2 &end) {
  */
 void Path::DrawPath(GPUProgram *prog, vec3 color) {
     if (vtx.size() > 0) {
-        prog->setUniform(color, "color"); // Szín beállítása (pl. sárga)
-        prog->setUniform(false, "isTextured"); // Nem textúrázott rajzolás
-        glLineWidth(3.0f); // Vonalvastagság 3 pixel
-        Bind(); // VAO és VBO aktiválása
-        glDrawArrays(GL_LINE_STRIP, 0, static_cast<int>(vtx.size())); // Vonal rajzolása
+        prog->setUniform(color, "color");
+        prog->setUniform(false, "isTextured");
+        glLineWidth(3.0f);
+        Bind();
+        glDrawArrays(GL_LINE_STRIP, 0, static_cast<int>(vtx.size()));
     }
 }

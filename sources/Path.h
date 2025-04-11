@@ -1,7 +1,3 @@
-//
-// Created by toron on 2025. 04. 11..
-//
-
 #ifndef PATH_H
 #define PATH_H
 
@@ -19,6 +15,17 @@ vec3 sphericalLinearInterpolation(const vec3 &startVector, const vec3 &endVector
 vec2 cartesianToGeographic(const vec3 &cartesianCoordinates);
 
 
+/**
+ * @class Path
+ * @brief A class representing a geographical path between two points, derived from the Geometry class.
+ *
+ * The Path class allows for creating a path between two geographical coordinates
+ * and rendering it using a specific GPU program and color. Internally, the path
+ * is represented as a series of points interpolated between the starting and ending
+ * geographical coordinates.
+ *
+ * The class utilizes the `Geometry` class for its GPU vertex array and buffer management.
+ */
 class Path final : public Geometry<vec2> {
 public:
     Path(const vec2 &start, const vec2 &end);
