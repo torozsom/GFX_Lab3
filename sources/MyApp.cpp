@@ -4,6 +4,31 @@
 #include <vector>
 
 
+/**
+ * The GLSL vertex shader source code used to define the vertex processing stage
+ * in the rendering pipeline. This shader primarily handles the transformation of
+ * vertex positions into clip space and passes texture coordinates to the fragment
+ * shader for further processing.
+ *
+ * The shader performs the following operations:
+ * - Position Transformation: Converts the input vertex position from object space
+ *   to clip space using a predefined layout (location 0) for vertex attributes.
+ *   The position is represented as a 2D `vec2`, with z and w components set to 0.0
+ *   and 1.0, respectively, for compatibility with 3D rendering pipelines.
+ * - Texture Coordinate Passing: Accepts 2D texture coordinates as input (layout location 1)
+ *   and passes them to the fragment shader via the `vTexCoord` varying. This enables
+ *   texturing in subsequent stages of the rendering pipeline.
+ *
+ * Inputs:
+ * - position: A 2D vector (vec2) representing the vertex's position in object space,
+ *   associated with layout location 0.
+ * - texCoord: A 2D vector (vec2) representing the texture coordinate of the vertex,
+ *   associated with layout location 1.
+ *
+ * Outputs:
+ * - vTexCoord: A 2D vector (vec2) passed to the fragment shader, containing the
+ *   interpolated texture coordinates for each fragment.
+ */
 const char *vertexShaderSource = R"(
 #version 330 core
 layout(location = 0) in vec2 position;
@@ -18,6 +43,42 @@ void main() {
 )";
 
 
+/**
+ * The GLSL fragment shader source code used to render a textured or colored fragment,
+ * simulating lighting effects based on solar illumination on a geographical coordinate
+ * system. If a texture is applied using `tex`, the shader uses texture coordinates
+ * to approximate geographic coordinates and compute lighting for day and night cycles.
+ * Without a texture, the fragment color is set to a uniform color.
+ *
+ * The shader supports the following functionalities:
+ * - Texturing: If `isTextured` is true, the shader samples a color from the provided
+ *   texture (`tex`) using the texture coordinates (`vTexCoord`).
+ * - Lighting: Computes solar illumination by calculating an angle between the
+ *   fragment's surface normal and the sun direction, determined by its geographic
+ *   position and a configurable offset (`hourOffset`). Simulates day and night
+ *   conditions by dimming fragments in shadow.
+ * - Geographic calculations: The shader internally calculates conversions between
+ *   geographic coordinates (latitude and longitude) and Cartesian coordinates for
+ *   lighting computations based on assumptions of Earth's tilt and solar position.
+ *
+ * Constants:
+ * - PI: The mathematical constant for π (3.14159265359), used for radian conversions.
+ * - earthTiltDeg: Earth's axial tilt in degrees (23.0°), used to represent the sun's
+ *   latitude at summer solstice.
+ *
+ * Inputs:
+ * - vTexCoord: 2D texture coordinates input from the vertex shader.
+ *
+ * Outputs:
+ * - fragColor: The resulting RGBA color of the fragment.
+ *
+ * Uniforms:
+ * - tex: Sampler used to fetch texels from the texture when `isTextured` is true.
+ * - isTextured: Boolean indicating whether the shader operates in texturing mode.
+ * - color: Uniform RGB color used when `isTextured` is false.
+ * - hourOffset: Offset in hours, representing the sun's longitudinal location based on
+ *   the given time zone (used for lighting calculations).
+ */
 const char *fragmentShaderSource = R"(
 #version 330 core
 in vec2 vTexCoord;
@@ -26,12 +87,49 @@ out vec4 fragColor;
 uniform sampler2D tex;
 uniform bool isTextured;
 uniform vec3 color;
-uniform float dayNightFactor;
+uniform float hourOffset;
+
+const float PI = 3.14159265359;
+const float earthTiltDeg = 23.0;
+
+vec3 geoToCartesian(float lat, float lon) {
+    float latRad = radians(lat);
+    float lonRad = radians(lon);
+    return vec3(
+        cos(latRad) * cos(lonRad),
+        cos(latRad) * sin(lonRad),
+        sin(latRad)
+    );
+}
 
 void main() {
     if (isTextured) {
         vec3 texColor = texture(tex, vTexCoord).rgb;
-        fragColor = vec4(texColor * dayNightFactor, 1.0);
+
+        // Convert texture coordinates to geographic coordinates
+        float lon = vTexCoord.x * 360.0 - 180.0;
+
+        float latitudeMinRad = radians(-85.0);
+        float latitudeMaxRad = radians(85.0);
+        float yMin = log(tan(latitudeMinRad) + 1.0 / cos(latitudeMinRad));
+        float yMax = log(tan(latitudeMaxRad) + 1.0 / cos(latitudeMaxRad));
+        float y = yMin + vTexCoord.y * (yMax - yMin);
+        float lat = degrees(atan(sinh(y)));
+
+        vec3 normal = geoToCartesian(lat, lon);
+
+        // Sun position at summer solstice: fixed latitude +23°
+        float sunLon = 180.0 - hourOffset * 15.0;
+        float sunLat = earthTiltDeg;
+        vec3 sunDir = geoToCartesian(sunLat, sunLon);
+
+        // Calculate lighting (angle between surface normal and sun direction)
+        float light = dot(normal, sunDir);
+
+        if (light > 0)
+            fragColor = vec4(texColor, 1.0);          // Day
+        else
+            fragColor = vec4(texColor * 0.5, 1.0);     // Night (50% dim)
     } else {
         fragColor = vec4(color, 1.0);
     }
@@ -65,7 +163,6 @@ const std::vector<unsigned char> encodedData = {
 
 
 
-
 class MyApp : public glApp {
 
     Map *map;
@@ -75,41 +172,9 @@ class MyApp : public glApp {
 
     std::vector<vec2> stationGeoCoords;
     std::vector<float> distances;
-    std::chrono::system_clock::time_point currentTime;
     int hourOffset;
 
-
 private:
-    /**
-     * Calculates a day-night factor based on the given hour offset from the
-     * adjusted summer solstice day and time. The returned factor ranges from
-     * 0.0 to 1.0, where 0.0 represents complete night and 1.0 represents
-     * full day, transitioning smoothly using a cosine function.
-     *
-     * @return The day-night factor as a float in the range [0.0, 1.0].
-     */
-    float calculateDayNightFactor() const {
-        std::tm summerSolstice = {};
-        summerSolstice.tm_year = 2025 - 1900;
-        summerSolstice.tm_mon = 5;
-        summerSolstice.tm_mday = 21;
-        summerSolstice.tm_hour = 0;
-        summerSolstice.tm_min = 0;
-        summerSolstice.tm_sec = 0;
-        summerSolstice.tm_isdst = 0;
-
-        auto solsticeTime = std::chrono::system_clock::from_time_t(std::mktime(&summerSolstice));
-        auto adjustedTime = solsticeTime + std::chrono::hours(hourOffset);
-
-        std::time_t tt = std::chrono::system_clock::to_time_t(adjustedTime);
-        std::tm *local = std::localtime(&tt);
-
-        float hour = local->tm_hour + local->tm_min / 60.0f;
-        float factor = cosf(((hour - 12.0f) / 12.0f) * M_PI);
-        return (factor + 1.0f) / 2.0f;
-    }
-
-
     /**
      * Calculates the great-circle distance between two geographical coordinates
      * specified in degrees. The calculation uses cartesian conversions and the
@@ -136,7 +201,6 @@ private:
 
         float angle = acosf(dotProduct);
         const float earthRadius = 40000.0f / (2.0f * M_PI);
-
         return angle * earthRadius;
     }
 
@@ -145,44 +209,87 @@ public:
     MyApp() : glApp(4, 5, 600, 600, "Grafika labor #3") { }
 
 
+    /**
+     * Initializes essential components required for the application, including:
+     * - Setting up the map data using the provided encoded dataset.
+     * - Creating and initializing a GPU program for rendering operations by compiling
+     *   and linking vertex and fragment shaders.
+     * - Initializing the hour offset used for time-based application logic.
+     *
+     * This method is overridden from the base class and designed to be called during
+     * the application initialization phase. It ensures the necessary objects and
+     * resources are prepared for rendering and other application-specific tasks.
+     *
+     * Actions performed in this method:
+     * 1. Creates a new instance of the `Map` class using the `encodedData` to populate
+     *    the geometry or other map-related structures.
+     * 2. Allocates and initializes a new `GPUProgram` instance, using the provided
+     *    `vertexShaderSource` and `fragmentShaderSource` strings for shader compilation.
+     * 3. Sets the `hourOffset` variable to an initial value of 0, possibly for time or
+     *    animation-related features.
+     */
     void onInitialization() override {
         map = new Map(encodedData);
         prog = new GPUProgram();
         prog->create(vertexShaderSource, fragmentShaderSource);
-
         hourOffset = 0;
-        std::tm summerSolstice = {};
-        summerSolstice.tm_year = 2025 - 1900;
-        summerSolstice.tm_mon = 5;
-        summerSolstice.tm_mday = 21;
-        summerSolstice.tm_hour = 0;
-        summerSolstice.tm_min = 0;
-        summerSolstice.tm_sec = 0;
-        summerSolstice.tm_isdst = 0;
-        currentTime = std::chrono::system_clock::from_time_t(std::mktime(&summerSolstice));
     }
 
 
+    /**
+     * Handles the rendering process for the application. This method is responsible for clearing
+     * the screen, setting up the GPU program, and rendering the main map, paths, and stations
+     * with appropriate attributes and visual properties.
+     *
+     * The rendering sequence includes:
+     * - Clearing the color buffer of the screen using `glClear` to ensure fresh rendering for every frame.
+     * - Activating the shader program through `prog->Use`, preparing it for drawing operations.
+     * - Setting a uniform value for the "hourOffset" parameter in the shader program to influence
+     *   time-based visual adjustments for the rendering.
+     * - Drawing the main map via the `map->DrawMap` function, using the active shader program.
+     * - Iterating over `paths` and rendering each path by calling `DrawPath` with a yellow (1.0, 1.0, 0.0)
+     *   color for visualization.
+     * - Iterating over `stations` and rendering each station by calling `DrawStation` with a red
+     *   (1.0, 0.0, 0.0) color for visualization.
+     *
+     * Inputs:
+     * - `hourOffset`: An integer offset that is converted to a floating-point value for use in the
+     *   shader program. This value can influence the visual representation of time-related information.
+     * - `prog`: A pointer to the `GPUProgram` object responsible for managing shader programs and
+     *   handling uniform data.
+     * - `map`: A pointer to the `Map` object that represents the primary map geometry to be rendered.
+     * - `paths`: A collection of `Path` objects, each representing a graphical path to be rendered
+     *   with a specific color.
+     * - `stations`: A collection of `Station` objects, each representing a graphical station to be
+     *   rendered with a specific color.
+     *
+     * Outputs:
+     * - The frame is rendered to the screen with the updated representation of the map, paths, and
+     *   stations according to their associated visual properties.
+     */
     void onDisplay() override {
         glClear(GL_COLOR_BUFFER_BIT);
         prog->Use();
-        float dayNightFactor = calculateDayNightFactor();
 
-        prog->setUniform(dayNightFactor, "dayNightFactor");
+        prog->setUniform(static_cast<float>(hourOffset), "hourOffset");
         map->DrawMap(prog);
 
-        for (size_t i = 0; i < paths.size(); ++i) {
-            prog->setUniform(1.0f, "dayNightFactor");
-            paths[i]->DrawPath(prog, vec3(1.0f, 1.0f, 0.0f));
-        }
+        for (auto *path: paths)
+            path->DrawPath(prog, vec3(1.0f, 1.0f, 0.0f));
 
-        for (auto *station: stations) {
-            prog->setUniform(1.0f, "dayNightFactor");
+        for (auto *station: stations)
             station->DrawStation(prog, vec3(1.0f, 0.0f, 0.0f));
-        }
     }
 
 
+    /**
+     * Handles keyboard input events triggered by the user. Specifically, listens for the
+     * 'n' or 'N' key presses to advance the hour offset and refresh the application screen
+     * to reflect the updated state.
+     *
+     * @param key The integer representation of the key pressed. This can correspond to ASCII values,
+     *            where 'n' or 'N' are used to indicate advancing the hour.
+     */
     void onKeyboard(int key) override {
         if (key == 'n' || key == 'N') {
             hourOffset++;
@@ -191,6 +298,25 @@ public:
     }
 
 
+    /**
+     * Handles the event when a mouse button is pressed. Specifically, it processes
+     * left mouse button clicks to create new stations, compute geographic coordinates,
+     * and, if multiple stations exist, adds a connecting path between the last two
+     * created stations.
+     *
+     * When the left button is pressed, the method performs the following:
+     * - Converts the screen coordinates of the click into normalized device coordinates (NDC).
+     * - Maps the NDC to geographic coordinates on the map.
+     * - Creates a new station at the geographic position and stores it.
+     * - If there are at least two stations, generates a path between the last two stations,
+     *   calculates the distance, and updates the list of distances.
+     * - Displays the computed distance in kilometers.
+     * - Triggers a screen refresh to render the updated elements.
+     *
+     * @param but The mouse button that was pressed. Expected to be `MOUSE_LEFT` for processing.
+     * @param pX The x-coordinate of the mouse cursor at the time of the press, in screen coordinates.
+     * @param pY The y-coordinate of the mouse cursor at the time of the press, in screen coordinates.
+     */
     void onMousePressed(MouseButton but, int pX, int pY) override {
         if (but == MOUSE_LEFT) {
             float ndcX = (2.0f * pX / 600) - 1.0f;
@@ -211,6 +337,19 @@ public:
     }
 
 
+    /**
+     * Destructor for the MyApp class.
+     * Cleans up dynamically allocated memory and deallocates resources used by the application.
+     * This ensures there is no memory leak when the application terminates.
+     *
+     * The destructor performs the following steps:
+     * - Frees memory allocated for the map object.
+     * - Frees memory allocated for the GPUProgram object.
+     * - Iterates through and deletes all dynamically allocated Path objects stored in the `paths` vector.
+     * - Iterates through and deletes all dynamically allocated Station objects stored in the `stations` vector.
+     *
+     * This process releases all resources associated with the application, preparing it for a proper cleanup.
+     */
     ~MyApp() {
         delete map;
         delete prog;
